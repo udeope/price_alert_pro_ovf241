@@ -1,6 +1,6 @@
 # Price Alert Pro
 
-A smart price monitoring application that helps you track product prices and get notified when they drop. Built with [Chef](https://chef.convex.dev) using [Convex](https://convex.dev) as its backend.
+A smart price monitoring application that helps you track product prices and get notified when they drop. Built with [Chef](https://chef.convex.dev) using [Convex](https://convex.dev) as its backend. Never miss a deal again!
   
 This project is connected to the Convex deployment named [`clever-ibex-345`](https://dashboard.convex.dev/d/clever-ibex-345).
 
@@ -13,15 +13,15 @@ This project is connected to the Convex deployment named [`clever-ibex-345`](htt
   
 ## Project Structure
   
-The frontend code is in the [`src`](./src) directory and is built with [Vite](https://vitejs.dev/).
+The frontend code is in the [`src`](./src) directory and is built with [Vite](https://vitejs.dev/), a modern frontend build tool that provides a faster and leaner development experience.
   
-The backend code is in the [`convex`](./convex) directory.
+The backend code is in the [`convex`](./convex) directory, which contains all the server-side logic for your application.
   
 ```bash
 npm run dev
 ```
 
-This command will start both the frontend and backend servers.
+This command will start both the frontend and backend servers simultaneously, allowing you to develop and test your application locally.
 
 ## App Authentication
 
@@ -37,4 +37,4 @@ Check out the [Convex docs](https://docs.convex.dev/) for more information on ho
 
 ## HTTP API
 
-User-defined HTTP routes are defined in the [`convex/router.ts`](./convex/router.ts) file. We split these routes into a separate file from [`convex/http.ts`](./convex/http.ts) to allow us to prevent the LLM from modifying the authentication routes.
+User-defined HTTP routes are defined in the [`convex/router.ts`](./convex/router.ts) file. We split these routes into a separate file from [`convex/http.ts`](./convex/http.ts) to allow us to prevent the LLM from modifying the authentication routes. You can add your custom API endpoints in the router file.
