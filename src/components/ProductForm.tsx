@@ -4,12 +4,12 @@ import { api } from "../../convex/_generated/api";
 import { toast } from "sonner";
 import { Id } from "../../convex/_generated/dataModel";
 
-interface EnhancedProductFormProps {
+interface ProductFormProps {
   onProductAdded: (productId: Id<"products">) => void;
   onCancel: () => void;
+  enableScraper?: boolean;
 }
 
-// Define a type for the scraped data result from the new scraper
 type ScrapedProductInfo = {
   success: boolean;
   title?: string;
@@ -18,11 +18,9 @@ type ScrapedProductInfo = {
   description?: string;
   brand?: string;
   error?: string;
-  // No screenshot property
 };
 
-
-export function EnhancedProductForm({ onProductAdded, onCancel }: EnhancedProductFormProps) {
+export function ProductForm({ onProductAdded, onCancel, enableScraper = false }: ProductFormProps) {
   const [url, setUrl] = useState("");
   const [isScrapingUrl, setIsScrapingUrl] = useState(false);
   const [scrapedData, setScrapedData] = useState<ScrapedProductInfo | null>(null);
@@ -63,7 +61,6 @@ export function EnhancedProductForm({ onProductAdded, onCancel }: EnhancedProduc
       
       if (result.success) {
         const newBasePriceString = typeof result.price === 'number' ? result.price.toFixed(2) : "";
-        // console.log("[EnhancedProductForm] Setting formData.basePrice to:", newBasePriceString, "(from scraped price:", result.price, ")"); // Removed console.log
         setFormData({
           name: result.title || "",
           url: url.trim(),
@@ -142,105 +139,107 @@ export function EnhancedProductForm({ onProductAdded, onCancel }: EnhancedProduc
         </button>
       </div>
 
-      {/* URL Scraping Section */}
-      <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-        <h4 className="text-lg font-medium text-blue-900 mb-3 flex items-center gap-2">
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
-          </svg>
-          Extracción Automática (HTML Básico)
-        </h4>
-        <p className="text-blue-700 text-sm mb-3">
-          Pega la URL del producto. Intentaremos extraer información del HTML básico. No funcionará para sitios con mucho JavaScript.
-        </p>
-        <div className="flex gap-3">
-          <input
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://ejemplo.com/producto"
-            className="flex-1 px-3 py-2 border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-          <button
-            onClick={handleUrlScrape}
-            disabled={isScrapingUrl}
-            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium rounded-md transition-colors flex items-center gap-2"
-          >
-            {isScrapingUrl ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                Extrayendo...
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
-                </svg>
-                Extraer / Probar
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-
-      {/* Preview of scraped data or error */}
-      {scrapedData && scrapedData.success && (scrapedData.title || scrapedData.price || scrapedData.imageUrl) && (
-        <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
-          <h4 className="text-green-900 font-medium mb-2 flex items-center gap-2">
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-            </svg>
-            Información Extraída (HTML Básico)
-          </h4>
-          <div>
-            <p className="font-medium text-green-800 break-all"><strong>Título:</strong> {scrapedData.title || "N/A"}</p>
-            <p className="text-green-700"><strong>Precio:</strong> {scrapedData.price ? `€${scrapedData.price.toFixed(2)}` : "N/A"}</p> {/* Display formatted price here too */}
-            {scrapedData.brand && <p className="text-green-600 text-sm"><strong>Marca:</strong> {scrapedData.brand}</p>}
-            {scrapedData.description && <p className="text-green-600 text-sm mt-1"><strong>Descripción (parcial):</strong> {scrapedData.description.substring(0,150)}...</p>}
-            {scrapedData.imageUrl && (
-              <div className="mt-2">
-                <p className="text-green-600 text-sm font-medium">Imagen del producto:</p>
-                <img
-                  src={scrapedData.imageUrl}
-                  alt="Producto Scraped"
-                  className="w-24 h-24 object-cover rounded-lg mt-1 border border-green-300"
-                />
-              </div>
-            )}
+      {enableScraper && (
+        <>
+          <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <h4 className="text-lg font-medium text-blue-900 mb-3 flex items-center gap-2">
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+              Extracción Automática (HTML Básico)
+            </h4>
+            <p className="text-blue-700 text-sm mb-3">
+              Pega la URL del producto. Intentaremos extraer información del HTML básico. No funcionará para sitios con mucho JavaScript.
+            </p>
+            <div className="flex gap-3">
+              <input
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://ejemplo.com/producto"
+                className="flex-1 px-3 py-2 border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <button
+                onClick={handleUrlScrape}
+                disabled={isScrapingUrl}
+                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium rounded-md transition-colors flex items-center gap-2"
+              >
+                {isScrapingUrl ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Extrayendo...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
+                    </svg>
+                    Extraer / Probar
+                  </>
+                )}
+              </button>
+            </div>
           </div>
-        </div>
-      )}
-      {scrapeError && (
-         <div className="mb-6 p-4 bg-red-50 rounded-lg border border-red-200">
-          <h4 className="text-red-900 font-medium mb-2 flex items-center gap-2">
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v4a1 1 0 102 0V5zm-1 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-            </svg>
-            Error en la Extracción (HTML Básico)
-          </h4>
-          <p className="text-red-700 text-sm break-all">{scrapeError}</p>
-        </div>
-      )}
-      {scrapedData && !scrapedData.success && scrapedData.error && ( 
-         <div className="mb-6 p-4 bg-red-50 rounded-lg border border-red-200">
-          <h4 className="text-red-900 font-medium mb-2 flex items-center gap-2">
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v4a1 1 0 102 0V5zm-1 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-            </svg>
-            Error en la Extracción (HTML Básico)
-          </h4>
-          <p className="text-red-700 text-sm break-all">{scrapedData.error}</p>
-        </div>
-      )}
 
+          {scrapedData && scrapedData.success && (scrapedData.title || scrapedData.price || scrapedData.imageUrl) && (
+            <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
+              <h4 className="text-green-900 font-medium mb-2 flex items-center gap-2">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+                Información Extraída (HTML Básico)
+              </h4>
+              <div>
+                <p className="font-medium text-green-800 break-all"><strong>Título:</strong> {scrapedData.title || "N/A"}</p>
+                <p className="text-green-700"><strong>Precio:</strong> {scrapedData.price ? `€${scrapedData.price.toFixed(2)}` : "N/A"}</p>
+                {scrapedData.brand && <p className="text-green-600 text-sm"><strong>Marca:</strong> {scrapedData.brand}</p>}
+                {scrapedData.description && <p className="text-green-600 text-sm mt-1"><strong>Descripción (parcial):</strong> {scrapedData.description.substring(0,150)}...</p>}
+                {scrapedData.imageUrl && (
+                  <div className="mt-2">
+                    <p className="text-green-600 text-sm font-medium">Imagen del producto:</p>
+                    <img
+                      src={scrapedData.imageUrl}
+                      alt="Producto Scraped"
+                      className="w-24 h-24 object-cover rounded-lg mt-1 border border-green-300"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          {scrapeError && (
+             <div className="mb-6 p-4 bg-red-50 rounded-lg border border-red-200">
+              <h4 className="text-red-900 font-medium mb-2 flex items-center gap-2">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v4a1 1 0 102 0V5zm-1 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                </svg>
+                Error en la Extracción (HTML Básico)
+              </h4>
+              <p className="text-red-700 text-sm break-all">{scrapeError}</p>
+            </div>
+          )}
+          {scrapedData && !scrapedData.success && scrapedData.error && ( 
+             <div className="mb-6 p-4 bg-red-50 rounded-lg border border-red-200">
+              <h4 className="text-red-900 font-medium mb-2 flex items-center gap-2">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v4a1 1 0 102 0V5zm-1 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                </svg>
+                Error en la Extracción (HTML Básico)
+              </h4>
+              <p className="text-red-700 text-sm break-all">{scrapedData.error}</p>
+            </div>
+          )}
+        </>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="product-name" className="block text-sm font-medium text-gray-700 mb-2">
               Nombre del producto *
             </label>
             <input
+              id="product-name"
               type="text"
               name="name"
               value={formData.name}
@@ -252,16 +251,17 @@ export function EnhancedProductForm({ onProductAdded, onCancel }: EnhancedProduc
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="product-price" className="block text-sm font-medium text-gray-700 mb-2">
               Precio actual *
             </label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">€</span>
               <input
+                id="product-price"
                 type="number"
                 step="0.01"
                 name="basePrice"
-                value={formData.basePrice} // This should be the string "XX.YY"
+                value={formData.basePrice}
                 onChange={handleChange}
                 placeholder="999.00"
                 className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -272,10 +272,11 @@ export function EnhancedProductForm({ onProductAdded, onCancel }: EnhancedProduc
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label htmlFor="product-url" className="block text-sm font-medium text-gray-700 mb-2">
             URL del producto *
           </label>
           <input
+            id="product-url"
             type="url"
             name="url"
             value={formData.url}
@@ -288,10 +289,11 @@ export function EnhancedProductForm({ onProductAdded, onCancel }: EnhancedProduc
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="product-brand" className="block text-sm font-medium text-gray-700 mb-2">
               Marca
             </label>
             <input
+              id="product-brand"
               type="text"
               name="brand"
               value={formData.brand}
@@ -302,10 +304,11 @@ export function EnhancedProductForm({ onProductAdded, onCancel }: EnhancedProduc
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="product-category" className="block text-sm font-medium text-gray-700 mb-2">
               Categoría
             </label>
             <select
+              id="product-category"
               name="category"
               value={formData.category}
               onChange={handleChange}
@@ -327,10 +330,11 @@ export function EnhancedProductForm({ onProductAdded, onCancel }: EnhancedProduc
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label htmlFor="product-image-url" className="block text-sm font-medium text-gray-700 mb-2">
             URL de imagen
           </label>
           <input
+            id="product-image-url"
             type="url"
             name="imageUrl"
             value={formData.imageUrl}
@@ -341,10 +345,11 @@ export function EnhancedProductForm({ onProductAdded, onCancel }: EnhancedProduc
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label htmlFor="product-description" className="block text-sm font-medium text-gray-700 mb-2">
             Descripción
           </label>
           <textarea
+            id="product-description"
             name="description"
             value={formData.description}
             onChange={handleChange}

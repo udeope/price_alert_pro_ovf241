@@ -47,6 +47,30 @@ const applicationTables = {
     isActive: v.boolean(),
     lastChecked: v.optional(v.number()),
     createdBy: v.optional(v.id("users")),
+    // Campos nuevos para alertas inteligentes
+    alertType: v.optional(v.union(
+      v.literal("fixed_price"),      // Alerta cuando el precio alcance una cantidad específica
+      v.literal("percentage"),       // Alerta cuando el precio baje por un porcentaje
+      v.literal("any_drop"),         // Alerta ante cualquier baja de precio
+      v.literal("seasonal")          // Alerta basadas en patrones estacionales
+    )),
+    percentageThreshold: v.optional(v.number()), // Para alertas basadas en porcentaje (ejemplo 20 para 20%)
+    multipleThresholds: v.optional(v.array(v.object({
+      percentage: v.number(),
+      triggered: v.boolean(),
+      notifiedAt: v.optional(v.number())
+    }))), // Para alertas con múltiples porcentajes
+    seasonalContext: v.optional(v.object({
+      isBlackFridayAlert: v.boolean(),
+      isChristmasAlert: v.boolean(),
+      isSummerSaleAlert: v.boolean()
+    })),
+    notificationSettings: v.optional(v.object({
+      maxDailyNotifications: v.number(),
+      lastNotificationDate: v.optional(v.number()),
+      notificationsToday: v.number(),
+      groupSimilarAlerts: v.boolean()
+    }))
   })
     .index("by_product_url", ["productUrl"])
     .index("by_product", ["productId"])

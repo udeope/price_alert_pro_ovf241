@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { toast } from "sonner";
 import { ProductSearch } from "./ProductSearch";
-import { EnhancedProductForm } from "./EnhancedProductForm";
+import { ProductForm } from "./ProductForm";
 import { ProductVariants } from "./ProductVariants";
 import { PriceHistoryDisplay } from "./PriceHistoryDisplay"; // Import the new component
 import { Id } from "../../convex/_generated/dataModel";
@@ -16,6 +16,19 @@ export function PriceAlert() {
   const [userContact, setUserContact] = useState("");
   const [targetPrice, setTargetPrice] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Estados para alertas inteligentes
+  const [alertType, setAlertType] = useState<"fixed_price" | "percentage" | "any_drop" | "seasonal">("any_drop");
+  const [percentageThreshold, setPercentageThreshold] = useState("");
+  const [multipleThresholds, setMultipleThresholds] = useState<{percentage: number, triggered: boolean}[]>([]);
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+  const [seasonalContext, setSeasonalContext] = useState({
+    isBlackFridayAlert: false,
+    isChristmasAlert: false,
+    isSummerSaleAlert: false
+  });
+  const [maxDailyNotifications, setMaxDailyNotifications] = useState(3);
+  const [groupSimilarAlerts, setGroupSimilarAlerts] = useState(true);
   
   const [currentSearchTerm, setCurrentSearchTerm] = useState("");
   const [productSearchComponentKey, setProductSearchComponentKey] = useState(0); 
@@ -92,9 +105,22 @@ export function PriceAlert() {
         targetPrice: targetPrice ? parseFloat(targetPrice) : undefined,
         userContact: userContact.trim(),
         contactType,
+        // Parámetros de alertas inteligentes
+        alertType,
+        percentageThreshold: percentageThreshold ? parseFloat(percentageThreshold) : undefined,
+        multipleThresholds: multipleThresholds.length > 0 ? multipleThresholds.map(t => ({
+          percentage: t.percentage,
+          triggered: false,
+          notifiedAt: undefined
+        })) : undefined,
+        seasonalContext: (seasonalContext.isBlackFridayAlert || seasonalContext.isChristmasAlert || seasonalContext.isSummerSaleAlert) 
+          ? seasonalContext 
+          : undefined,
+        maxDailyNotifications,
+        groupSimilarAlerts,
       });
 
-      toast.success("¡Alerta de precio activada! Te notificaremos cuando baje el precio.");
+      toast.success("¡Alerta de precio inteligente activada! Te notificaremos según tu configuración.");
       setSelectedProduct(null);
       setSelectedVariant(null);
       setCurrentSearchTerm("");
@@ -102,6 +128,18 @@ export function PriceAlert() {
       setUserContact("");
       setTargetPrice("");
       setContactType("whatsapp");
+      // Reset smart alert settings
+      setAlertType("any_drop");
+      setPercentageThreshold("");
+      setMultipleThresholds([]);
+      setShowAdvancedOptions(false);
+      setSeasonalContext({
+        isBlackFridayAlert: false,
+        isChristmasAlert: false,
+        isSummerSaleAlert: false
+      });
+      setMaxDailyNotifications(3);
+      setGroupSimilarAlerts(true);
 
     } catch (error: any) {
       toast.error(error.message || "Error al crear la alerta. Inténtalo de nuevo.");
@@ -132,9 +170,10 @@ export function PriceAlert() {
 
   if (showAddForm) {
     return (
-      <EnhancedProductForm
+      <ProductForm
         onProductAdded={handleProductAdded}
         onCancel={() => setShowAddForm(false)}
+        enableScraper={true}
       />
     );
   }
@@ -382,6 +421,216 @@ export function PriceAlert() {
                     </svg>
                     Si no especificas un precio, te avisaremos con cualquier bajada
                   </p>
+                </div>
+
+                {/* Sección de Alertas Inteligentes */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="block text-sm font-semibold text-blue-900">
+                      🤖 Tipo de Alerta Inteligente
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+                      className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                    >
+                      {showAdvancedOptions ? 'Ocultar' : 'Mostrar'} opciones avanzadas
+                      <svg className={`w-3 h-3 transition-transform ${showAdvancedOptions ? 'rotate-180' : ''}`} fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                    <label className={`flex items-center p-3 border-2 rounded-lg cursor-pointer transition-all ${
+                      alertType === "any_drop" 
+                        ? "border-blue-500 bg-blue-50" 
+                        : "border-gray-200 hover:border-gray-300"
+                    }`}>
+                      <input
+                        type="radio"
+                        value="any_drop"
+                        checked={alertType === "any_drop"}
+                        onChange={(e) => setAlertType(e.target.value as any)}
+                        className="sr-only"
+                      />
+                      <div className="flex items-center gap-2">
+                        <div className="text-lg">📉</div>
+                        <div>
+                          <div className="font-medium text-sm">Cualquier bajada</div>
+                          <div className="text-xs text-gray-500">Te aviso con cualquier descuento</div>
+                        </div>
+                      </div>
+                    </label>
+                    
+                    <label className={`flex items-center p-3 border-2 rounded-lg cursor-pointer transition-all ${
+                      alertType === "percentage" 
+                        ? "border-orange-500 bg-orange-50" 
+                        : "border-gray-200 hover:border-gray-300"
+                    }`}>
+                      <input
+                        type="radio"
+                        value="percentage"
+                        checked={alertType === "percentage"}
+                        onChange={(e) => setAlertType(e.target.value as any)}
+                        className="sr-only"
+                      />
+                      <div className="flex items-center gap-2">
+                        <div className="text-lg">📊</div>
+                        <div>
+                          <div className="font-medium text-sm">Por porcentaje</div>
+                          <div className="text-xs text-gray-500">Descuento específico (%)</div>
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                  
+                  {alertType === "percentage" && (
+                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
+                      <div className="mb-3">
+                        <label className="block text-sm font-medium text-orange-900 mb-2">
+                          🎯 Porcentaje de descuento mínimo
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            value={percentageThreshold}
+                            onChange={(e) => setPercentageThreshold(e.target.value)}
+                            placeholder="20"
+                            min="1"
+                            max="90"
+                            className="w-full px-3 py-2 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
+                          />
+                          <span className="absolute right-3 top-2 text-orange-600">%</span>
+                        </div>
+                        <p className="text-xs text-orange-600 mt-1">
+                          Te avisaremos cuando el precio baje al menos este porcentaje
+                        </p>
+                      </div>
+                      
+                      <div className="border-t border-orange-200 pt-3">
+                        <label className="block text-sm font-medium text-orange-900 mb-2">
+                          🎚️ Múltiples umbrales (opcional)
+                        </label>
+                        <div className="flex gap-2 mb-2">
+                          <button
+                            type="button"
+                            onClick={() => setMultipleThresholds([...multipleThresholds, {percentage: 15, triggered: false}])}
+                            className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded hover:bg-orange-200"
+                          >
+                            + Agregar umbral
+                          </button>
+                          {multipleThresholds.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setMultipleThresholds([])}
+                              className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200"
+                            >
+                              Limpiar todos
+                            </button>
+                          )}
+                        </div>
+                        {multipleThresholds.map((threshold, index) => (
+                          <div key={index} className="flex items-center gap-2 mb-2">
+                            <input
+                              type="number"
+                              value={threshold.percentage}
+                              onChange={(e) => {
+                                const updated = [...multipleThresholds];
+                                updated[index].percentage = parseInt(e.target.value) || 0;
+                                setMultipleThresholds(updated);
+                              }}
+                              min="1"
+                              max="90"
+                              className="w-20 px-2 py-1 border border-orange-300 rounded text-sm"
+                            />
+                            <span className="text-orange-600">%</span>
+                            <button
+                              type="button"
+                              onClick={() => setMultipleThresholds(multipleThresholds.filter((_, i) => i !== index))}
+                              className="text-red-600 hover:text-red-800"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                        <p className="text-xs text-orange-600">
+                          Recibirás una notificación separada para cada umbral alcanzado
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {showAdvancedOptions && (
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          📅 Alertas estacionales
+                        </label>
+                        <div className="space-y-2">
+                          <label className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={seasonalContext.isBlackFridayAlert}
+                              onChange={(e) => setSeasonalContext({...seasonalContext, isBlackFridayAlert: e.target.checked})}
+                              className="mr-2"
+                            />
+                            <span className="text-sm">🛍️ Black Friday (Nov 24-30)</span>
+                          </label>
+                          <label className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={seasonalContext.isChristmasAlert}
+                              onChange={(e) => setSeasonalContext({...seasonalContext, isChristmasAlert: e.target.checked})}
+                              className="mr-2"
+                            />
+                            <span className="text-sm">🎄 Navidad (Dic 20-31)</span>
+                          </label>
+                          <label className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={seasonalContext.isSummerSaleAlert}
+                              onChange={(e) => setSeasonalContext({...seasonalContext, isSummerSaleAlert: e.target.checked})}
+                              className="mr-2"
+                            />
+                            <span className="text-sm">☀️ Rebajas de verano (Jun-Ago)</span>
+                          </label>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          🔔 Configuración de notificaciones
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-xs text-gray-600">Máximo notificaciones por día</label>
+                            <select
+                              value={maxDailyNotifications}
+                              onChange={(e) => setMaxDailyNotifications(parseInt(e.target.value))}
+                              className="w-full mt-1 px-2 py-1 border border-gray-300 rounded text-sm"
+                            >
+                              <option value={1}>1 por día</option>
+                              <option value={3}>3 por día</option>
+                              <option value={5}>5 por día</option>
+                              <option value={10}>Sin límite</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="flex items-center mt-4">
+                              <input
+                                type="checkbox"
+                                checked={groupSimilarAlerts}
+                                onChange={(e) => setGroupSimilarAlerts(e.target.checked)}
+                                className="mr-2"
+                              />
+                              <span className="text-xs text-gray-600">Agrupar alertas similares</span>
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <button

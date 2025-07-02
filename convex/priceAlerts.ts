@@ -15,6 +15,26 @@ export const createPriceAlert = mutation({
     targetPrice: v.optional(v.number()),
     userContact: v.string(),
     contactType: v.union(v.literal("whatsapp"), v.literal("telegram"), v.literal("email")),
+    // Nuevos parámetros para alertas inteligentes
+    alertType: v.optional(v.union(
+      v.literal("fixed_price"),
+      v.literal("percentage"),
+      v.literal("any_drop"),
+      v.literal("seasonal")
+    )),
+    percentageThreshold: v.optional(v.number()),
+    multipleThresholds: v.optional(v.array(v.object({
+      percentage: v.number(),
+      triggered: v.boolean(),
+      notifiedAt: v.optional(v.number())
+    }))),
+    seasonalContext: v.optional(v.object({
+      isBlackFridayAlert: v.boolean(),
+      isChristmasAlert: v.boolean(),
+      isSummerSaleAlert: v.boolean()
+    })),
+    maxDailyNotifications: v.optional(v.number()),
+    groupSimilarAlerts: v.optional(v.boolean()),
   },
   handler: async (ctx: MutationCtx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -40,11 +60,30 @@ export const createPriceAlert = mutation({
     
     console.log(`[createPriceAlert] Creating alert for userId: ${userId}, product: ${args.productName}, contact: ${args.contactType}`);
 
+    // Determinar el tipo de alerta basado en los parámetros
+    let alertType = args.alertType || "any_drop"; // Por defecto, cualquier bajada
+    if (args.targetPrice !== undefined && args.targetPrice !== null) {
+      alertType = "fixed_price"; // Si hay precio objetivo, es alerta fija
+    }
+    if (args.percentageThreshold !== undefined) {
+      alertType = "percentage"; // Si hay porcentaje, es alerta por porcentaje
+    }
+    if (args.multipleThresholds && args.multipleThresholds.length > 0) {
+      alertType = "percentage"; // Múltiples umbrales también es por porcentaje
+    }
+
     const alertId = await ctx.db.insert("priceAlerts", {
       ...args,
       isActive: true,
       createdBy: userId,
-      lastChecked: Date.now(), // Initialize lastChecked
+      lastChecked: Date.now(),
+      alertType,
+      notificationSettings: {
+        maxDailyNotifications: args.maxDailyNotifications || 3,
+        lastNotificationDate: undefined,
+        notificationsToday: 0,
+        groupSimilarAlerts: args.groupSimilarAlerts || true
+      }
     });
 
     console.log(`[createPriceAlert] SUCCESS: Alert ${alertId} created for userId: ${userId}`);
@@ -158,6 +197,23 @@ export const getActiveAlertsInternal = internalQuery({
 });
 
 // Internal mutation to update an alert after a check
+// Internal mutation para actualizar múltiples umbrales
+export const updateMultipleThresholds = internalMutation({
+  args: {
+    alertId: v.id("priceAlerts"),
+    thresholds: v.array(v.object({
+      percentage: v.number(),
+      triggered: v.boolean(),
+      notifiedAt: v.optional(v.number())
+    }))
+  },
+  handler: async (ctx: MutationCtx, args): Promise<void> => {
+    await ctx.db.patch(args.alertId, { 
+      multipleThresholds: args.thresholds 
+    });
+  },
+});
+
 export const updateAlertAfterCheck = internalMutation({
   args: {
     alertId: v.id("priceAlerts"),
@@ -257,14 +313,76 @@ export const processActiveAlerts = internalAction({
       console.log(`[processActiveAlerts] Alert ${alert._id}: DB Price=${alert.currentPrice}, Market Price=${currentMarketPrice}, Target=${alert.targetPrice}`);
 
       let shouldNotify = false;
-      if (alert.targetPrice !== undefined && alert.targetPrice !== null) {
-        if (currentMarketPrice <= alert.targetPrice) {
-          shouldNotify = true;
-        }
-      } else { // No target price, notify on any price drop
-        if (currentMarketPrice < alert.currentPrice) {
-          shouldNotify = true;
-        }
+      let notificationMessage = "";
+      
+      // Nueva lógica para alertas inteligentes
+      const alertType = alert.alertType || "any_drop"; // Por defecto para alertas existentes
+      switch (alertType) {
+        case "fixed_price":
+          if (alert.targetPrice !== undefined && currentMarketPrice <= alert.targetPrice) {
+            shouldNotify = true;
+            notificationMessage = `¡Precio objetivo alcanzado! €${currentMarketPrice.toFixed(2)} (objetivo: €${alert.targetPrice.toFixed(2)})`;
+          }
+          break;
+          
+        case "percentage":
+          const originalPrice = alert.currentPrice;
+          const percentageDrop = ((originalPrice - currentMarketPrice) / originalPrice) * 100;
+          
+          if (alert.multipleThresholds && alert.multipleThresholds.length > 0) {
+            // Verificar múltiples umbrales
+            for (const threshold of alert.multipleThresholds) {
+              if (percentageDrop >= threshold.percentage && !threshold.triggered) {
+                shouldNotify = true;
+                notificationMessage = `¡Descuento del ${threshold.percentage}%! Precio: €${currentMarketPrice.toFixed(2)} (antes: €${originalPrice.toFixed(2)})`;
+                // Marcar este umbral como activado
+                const updatedThresholds = alert.multipleThresholds.map(t => 
+                  t.percentage === threshold.percentage 
+                    ? { ...t, triggered: true, notifiedAt: Date.now() }
+                    : t
+                );
+                await ctx.runMutation(internal.priceAlerts.updateMultipleThresholds, {
+                  alertId: alert._id,
+                  thresholds: updatedThresholds
+                });
+                break;
+              }
+            }
+          } else if (alert.percentageThreshold && percentageDrop >= alert.percentageThreshold) {
+            shouldNotify = true;
+            notificationMessage = `¡Descuento del ${percentageDrop.toFixed(1)}%! Precio: €${currentMarketPrice.toFixed(2)} (antes: €${originalPrice.toFixed(2)})`;
+          }
+          break;
+          
+        case "seasonal":
+          // Lógica para alertas estacionales
+          const currentDate = new Date();
+          const month = currentDate.getMonth() + 1;
+          const day = currentDate.getDate();
+          
+          let isSeasonalPeriod = false;
+          if (alert.seasonalContext?.isBlackFridayAlert && month === 11 && day >= 24 && day <= 30) {
+            isSeasonalPeriod = true;
+          } else if (alert.seasonalContext?.isChristmasAlert && month === 12 && day >= 20) {
+            isSeasonalPeriod = true;
+          } else if (alert.seasonalContext?.isSummerSaleAlert && month >= 6 && month <= 8) {
+            isSeasonalPeriod = true;
+          }
+          
+          if (isSeasonalPeriod && currentMarketPrice < alert.currentPrice) {
+            shouldNotify = true;
+            notificationMessage = `¡Oferta estacional detectada! Precio: €${currentMarketPrice.toFixed(2)}`;
+          }
+          break;
+          
+        case "any_drop":
+        default:
+          if (currentMarketPrice < alert.currentPrice) {
+            shouldNotify = true;
+            const savingsAmount = alert.currentPrice - currentMarketPrice;
+            notificationMessage = `¡Precio más bajo! €${currentMarketPrice.toFixed(2)} (ahorras €${savingsAmount.toFixed(2)})`;
+          }
+          break;
       }
 
       if (shouldNotify) {
