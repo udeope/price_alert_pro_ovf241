@@ -17,4 +17,11 @@ crons.interval(
   {} // No arguments needed for the action
 );
 
+crons.interval(
+  "scrape all active products",
+  { hours: 1 }, // Run every hour
+  internal.products.scrapeAllActiveProducts,
+  {}
+);
+
 export default crons;

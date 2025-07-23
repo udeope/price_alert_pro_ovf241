@@ -5,6 +5,29 @@ import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { Doc } from "./_generated/dataModel";
 
+// Helper query to find an existing active alert for a product/variant
+export const findExistingAlert = internalQuery({
+  args: {
+    userId: v.id("users"),
+    productId: v.id("products"),
+    variantId: v.optional(v.id("productVariants")),
+  },
+  handler: async (ctx: QueryCtx, args) => {
+    let query = ctx.db
+      .query("priceAlerts")
+      .withIndex("by_user", (q) => q.eq("createdBy", args.userId))
+      .filter((q) => q.eq(q.field("isActive"), true))
+      .filter((q) => q.eq(q.field("productId"), args.productId));
+
+    if (args.variantId) {
+      query = query.filter((q) => q.eq(q.field("variantId"), args.variantId));
+    } else {
+      query = query.filter((q) => q.eq(q.field("variantId"), undefined));
+    }
+    return await query.first();
+  },
+});
+
 export const createPriceAlert = mutation({
   args: {
     productId: v.id("products"),
@@ -42,18 +65,13 @@ export const createPriceAlert = mutation({
       throw new Error("User must be logged in to create an alert.");
     }
 
-    let existingAlertsQuery = ctx.db
-      .query("priceAlerts")
-      .withIndex("by_user", (q) => q.eq("createdBy", userId))
-      .filter((q) => q.eq(q.field("isActive"), true))
-      .filter((q) => q.eq(q.field("productId"), args.productId));
+    const existingAlert = await ctx.runQuery(internal.priceAlerts.findExistingAlert, {
+      userId,
+      productId: args.productId,
+      variantId: args.variantId,
+    });
 
-    const existingAlerts = await (args.variantId
-      ? existingAlertsQuery.filter((q) => q.eq(q.field("variantId"), args.variantId))
-      : existingAlertsQuery.filter((q) => q.eq(q.field("variantId"), undefined))
-    ).collect();
-
-    if (existingAlerts.length > 0) {
+    if (existingAlert) {
       console.log(`[createPriceAlert] User ${userId} already has an active alert for product ${args.productId} (variant: ${args.variantId}).`);
       throw new Error("An active alert for this product/variant already exists.");
     }
@@ -124,7 +142,7 @@ export const updatePriceAlert = mutation({
 
 export const getUserAlerts = query({
   args: {},
-  handler: async (ctx: QueryCtx): Promise<Doc<"priceAlerts">[]> => {
+  handler: async (ctx: QueryCtx): Promise<(Doc<"priceAlerts"> & { product: Doc<"products"> | null })[]> => {
     const userId = await getAuthUserId(ctx);
     if (!userId) {
       console.log("[getUserAlerts] No userId, returning empty array.");
@@ -135,8 +153,16 @@ export const getUserAlerts = query({
       .withIndex("by_user", (q) => q.eq("createdBy", userId))
       .order("desc")
       .collect();
-    console.log(`[getUserAlerts] Found ${alerts.length} alerts for userId: ${userId}`);
-    return alerts;
+
+    const alertsWithProducts = await Promise.all(
+      alerts.map(async (alert) => {
+        const product = alert.productId ? await ctx.db.get(alert.productId) : null;
+        return { ...alert, product };
+      })
+    );
+
+    console.log(`[getUserAlerts] Found ${alertsWithProducts.length} alerts for userId: ${userId}`);
+    return alertsWithProducts;
   },
 });
 
@@ -325,7 +351,7 @@ export const processActiveAlerts = internalAction({
           }
           break;
           
-        case "percentage":
+        case "percentage": {
           const originalPrice = alert.currentPrice;
           const percentageDrop = ((originalPrice - currentMarketPrice) / originalPrice) * 100;
           
@@ -336,8 +362,8 @@ export const processActiveAlerts = internalAction({
                 shouldNotify = true;
                 notificationMessage = `¡Descuento del ${threshold.percentage}%! Precio: €${currentMarketPrice.toFixed(2)} (antes: €${originalPrice.toFixed(2)})`;
                 // Marcar este umbral como activado
-                const updatedThresholds = alert.multipleThresholds.map(t => 
-                  t.percentage === threshold.percentage 
+                const updatedThresholds = alert.multipleThresholds.map((t: { percentage: number; triggered: boolean; notifiedAt?: number }) =>
+                  t.percentage === threshold.percentage
                     ? { ...t, triggered: true, notifiedAt: Date.now() }
                     : t
                 );
@@ -353,8 +379,9 @@ export const processActiveAlerts = internalAction({
             notificationMessage = `¡Descuento del ${percentageDrop.toFixed(1)}%! Precio: €${currentMarketPrice.toFixed(2)} (antes: €${originalPrice.toFixed(2)})`;
           }
           break;
+        }
           
-        case "seasonal":
+        case "seasonal": {
           // Lógica para alertas estacionales
           const currentDate = new Date();
           const month = currentDate.getMonth() + 1;
@@ -374,15 +401,17 @@ export const processActiveAlerts = internalAction({
             notificationMessage = `¡Oferta estacional detectada! Precio: €${currentMarketPrice.toFixed(2)}`;
           }
           break;
+        }
           
         case "any_drop":
-        default:
+        default: {
           if (currentMarketPrice < alert.currentPrice) {
             shouldNotify = true;
             const savingsAmount = alert.currentPrice - currentMarketPrice;
             notificationMessage = `¡Precio más bajo! €${currentMarketPrice.toFixed(2)} (ahorras €${savingsAmount.toFixed(2)})`;
           }
           break;
+        }
       }
 
       if (shouldNotify) {

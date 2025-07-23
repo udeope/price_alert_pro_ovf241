@@ -13,11 +13,21 @@ const applicationTables = {
     category: v.optional(v.string()),
     isActive: v.boolean(),
     createdBy: v.optional(v.id("users")),
+    lastScraped: v.optional(v.number()),
+    scrapingStatus: v.optional(v.union(
+      v.literal("success"),
+      v.literal("failure"),
+      v.literal("pending")
+    )),
   })
     .index("by_url", ["url"])
     .index("by_user", ["createdBy"]) 
     .index("by_active", ["isActive"]) 
-    .index("by_user_and_active", ["createdBy", "isActive"]),
+    .index("by_user_and_active", ["createdBy", "isActive"])
+    .searchIndex("by_name_and_brand", {
+      searchField: "name",
+      filterFields: ["createdBy", "isActive", "brand", "category"],
+    }),
 
   productVariants: defineTable({
     productId: v.id("products"),

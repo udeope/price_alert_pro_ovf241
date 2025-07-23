@@ -1,7 +1,8 @@
-import { query, mutation, internalQuery } from "./_generated/server"; // Added internalQuery
+import { query, mutation, internalQuery, internalAction, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { Doc, Id } from "./_generated/dataModel"; 
+import { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api"; 
 
 export const createProduct = mutation({
   args: {
@@ -37,6 +38,7 @@ export const createProduct = mutation({
       ...args,
       isActive: true,
       createdBy: userId,
+      scrapingStatus: "pending",
     });
     console.log(`[createProduct] SUCCESS: Product ${newProductId} created for userId: ${userId} with name: ${args.name}`);
 
@@ -113,7 +115,7 @@ export const getProductByUrl = query({
 export const getAllProducts = query({
   args: {},
   handler: async (ctx) => {
-    const currentUserId = await getAuthUserId(ctx); 
+    const currentUserId = await getAuthUserId(ctx);
     console.log(`[getAllProducts] Called by currentUserId: ${currentUserId} (Type: ${typeof currentUserId})`);
 
     if (!currentUserId) {
@@ -123,14 +125,24 @@ export const getAllProducts = query({
 
     const userProducts = await ctx.db
       .query("products")
-      .withIndex("by_user_and_active", (q) => 
+      .withIndex("by_user_and_active", (q) =>
         q.eq("createdBy", currentUserId).eq("isActive", true)
       )
-      .order("desc") 
+      .order("desc")
       .collect();
-    
+
     console.log(`[getAllProducts] Found ${userProducts.length} active products for currentUserId: ${currentUserId}.`);
     return userProducts;
+  },
+});
+
+export const getAllActiveProducts = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("products")
+      .withIndex("by_active", (q) => q.eq("isActive", true))
+      .collect();
   },
 });
 
@@ -145,28 +157,27 @@ export const searchProducts = query({
       return [];
     }
 
-    const userActiveProducts = await ctx.db
-      .query("products")
-      .withIndex("by_user_and_active", q => q.eq("createdBy", currentUserId).eq("isActive", true))
-      .collect();
-    
-    console.log(`[searchProducts] ${userActiveProducts.length} active products for user ${currentUserId} before search term filter.`);
-
     if (!args.searchTerm.trim()) {
-        console.log("[searchProducts] Empty search term, returning all user's active products.");
-        return userActiveProducts.sort((a, b) => b._creationTime - a._creationTime);
+      // If search term is empty, return all active products for the user, sorted by creation time.
+      return ctx.db
+        .query("products")
+        .withIndex("by_user_and_active", q => q.eq("createdBy", currentUserId).eq("isActive", true))
+        .order("desc")
+        .collect();
     }
 
-    const lowerSearchTerm = args.searchTerm.toLowerCase();
-    const filteredResults = userActiveProducts.filter(product => 
-      product.name.toLowerCase().includes(lowerSearchTerm) ||
-      (product.brand && product.brand.toLowerCase().includes(lowerSearchTerm)) ||
-      (product.category && product.category.toLowerCase().includes(lowerSearchTerm)) ||
-      product.url.toLowerCase().includes(lowerSearchTerm)
-    ).sort((a,b) => b._creationTime - a._creationTime); 
-
-    console.log(`[searchProducts] Returning ${filteredResults.length} products after search term filter for term "${args.searchTerm}".`);
-    return filteredResults;
+    // Use the new search index for efficient text-based search.
+    const results = await ctx.db
+      .query("products")
+      .withSearchIndex("by_name_and_brand", (q) =>
+        q.search("name", args.searchTerm)
+         .eq("createdBy", currentUserId)
+         .eq("isActive", true)
+      )
+      .collect();
+      
+    console.log(`[searchProducts] Returning ${results.length} products after search term filter for term "${args.searchTerm}".`);
+    return results;
   },
 });
 
@@ -281,22 +292,15 @@ export const updateVariantPrice = mutation({
   },
 });
 
-export const updateProductBasePrice = mutation({
+export const updateProductBasePrice = internalMutation({
   args: {
     productId: v.id("products"),
     newBasePrice: v.number(),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
-      throw new Error("User must be logged in.");
-    }
     const product = await ctx.db.get(args.productId);
     if (!product) {
       throw new Error("Product not found.");
-    }
-    if (product.createdBy !== userId) {
-      throw new Error("User does not have permission to update this product.");
     }
 
     await ctx.db.patch(args.productId, { basePrice: args.newBasePrice });
@@ -341,5 +345,45 @@ export const getPriceHistory = query({
     const history = await queryBuilder.order("desc").collect(); // Newest first
     console.log(`[getPriceHistory] Found ${history.length} entries for product ${args.productId}, variant ${args.variantId}`);
     return history;
+  },
+});
+
+export const scrapeAllActiveProducts = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const activeProducts = await ctx.runQuery(internal.products.getAllActiveProducts);
+
+    for (const product of activeProducts) {
+      const scrapeResult = await ctx.runAction(internal.webScraper.scrapeProductInfo, { url: product.url });
+
+      if (scrapeResult.success) {
+        await ctx.runMutation(internal.products.updateProductBasePrice, {
+          productId: product._id,
+          newBasePrice: scrapeResult.price,
+        });
+        await ctx.runMutation(internal.products.updateScrapingStatus, {
+          productId: product._id,
+          status: "success",
+        });
+      } else {
+        await ctx.runMutation(internal.products.updateScrapingStatus, {
+          productId: product._id,
+          status: "failure",
+        });
+      }
+    }
+  },
+});
+
+export const updateScrapingStatus = internalMutation({
+  args: {
+    productId: v.id("products"),
+    status: v.union(v.literal("success"), v.literal("failure"), v.literal("pending")),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.productId, {
+      scrapingStatus: args.status,
+      lastScraped: Date.now(),
+    });
   },
 });
